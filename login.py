@@ -72,6 +72,9 @@ class LoginWindow(QWidget):
         # self.button_register.clicked.connect(self.handle_register)
         # layout.addWidget(self.button_register)
 
+        self.input_username.returnPressed.connect(self.handleUsernamEnterPressed)
+        self.input_password.returnPressed.connect(self.handle_login)
+
         self.label_status = QLabel("")
         layout.addWidget(self.label_status)
 
@@ -79,6 +82,9 @@ class LoginWindow(QWidget):
         container.setLayout(layout)
         main_layout.addWidget(container, alignment=Qt.AlignmentFlag.AlignCenter)
         self.setLayout(main_layout)
+    
+    def handleUsernamEnterPressed(self):
+        self.input_password.setFocus()
 
     def handle_login(self):
         username = self.input_username.text()

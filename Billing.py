@@ -1,11 +1,11 @@
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot as Slot, Qt, QPoint, QStringListModel, QModelIndex, QAbstractListModel
 from PyQt6.QtWidgets import QApplication, QMenu, QTableWidget, QTabWidget, QTableWidgetItem, QLabel, QPushButton, QVBoxLayout, QHBoxLayout, QWidget, QDialog, QLineEdit
-from PyQt6.QtWidgets import QMessageBox, QCompleter, QListWidget, QListWidgetItem, QListView
+from PyQt6.QtWidgets import QMessageBox, QCompleter, QListWidget, QListWidgetItem, QListView, QCheckBox
 from PyQt6.QtGui import QIntValidator, QDoubleValidator, QAction, QKeyEvent
 from database import DataBase
 
 from Printer import BillPrinter
-from GlobalAccess import LogMsg
+from GlobalAccess import LogMsg, GetElevation
 from Bills import BillTable
 
 class DropDownWindow(QListView):
@@ -68,6 +68,9 @@ class BillingTab(QWidget):
         self.product_search.setPlaceholderText("Type to search...")
 
         self.invoice_id_label = QLabel("Invoice ID: ")
+        self.override_invoice_id_toggle = QCheckBox("Override")
+        self.override_id_input = QLineEdit()
+        self.override_id_input.setPlaceholderText("Override Invoice ID")
 
 
         quantity_label = QLabel("Enter Quantity")
@@ -81,6 +84,12 @@ class BillingTab(QWidget):
         self.print_button = QPushButton("Print Bill")
         # self.save_button = QPushButton("Save Bill")
         self.clear_button = QPushButton("New Bill")
+
+        invoice_section = QHBoxLayout()
+        invoice_section.addWidget(self.invoice_id_label)
+        if GetElevation() == "admin":
+            invoice_section.addWidget(self.override_invoice_id_toggle)
+            invoice_section.addWidget(self.override_id_input)
         
         search_section = QVBoxLayout()
         search_section.addWidget(search_label)
@@ -100,7 +109,7 @@ class BillingTab(QWidget):
         # button_section.addWidget(self.save_button)
 
         bill_layout = QVBoxLayout()
-        bill_layout.addWidget(self.invoice_id_label)
+        bill_layout.addLayout(invoice_section)
         bill_layout.addLayout(entry_section)
         bill_layout.addWidget(self.bill_table)
         bill_layout.addLayout(button_section)
@@ -223,7 +232,10 @@ class BillingTab(QWidget):
         if not self.product_data:
             return
         
-        quantity = float(self.quantity_input.text())
+        try:
+            quantity = float(self.quantity_input.text())
+        except:
+            return
 
         if(self.product_search.text() == ""):
             if(self.last_added_product_id):
@@ -243,14 +255,36 @@ class BillingTab(QWidget):
             LogMsg("No items in bill to save")
             return
 
-        reply = QMessageBox.question(
-            self, "Confirm Save", "Are you sure you want to save and print this bill?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No
-        )
-        if reply == QMessageBox.StandardButton.Yes:
-            invoice_no = self.db.save_bill()
-            self.update_bill()
-            return invoice_no
+        if self.override_invoice_id_toggle.checkState() == Qt.CheckState.Unchecked:
+            reply = QMessageBox.question(
+                self, "Confirm Save", "Are you sure you want to save and print this bill?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                invoice_no = self.db.save_bill()
+                self.update_bill()
+                return invoice_no
+        elif self.override_invoice_id_toggle.checkState() == Qt.CheckState.Checked:
+            try:
+                override_id = int(self.override_id_input.text())
+            except:
+                LogMsg("Invalid Invoice No.")
+                return
+            
+            if self.db.doesInvoiceIdExist(override_id):
+                display_text = "Invoice Id already exists. Are you sure you want to override?"
+            else:
+                display_text = "Are you sure you want to save and print this bill?"
+            
+            reply = QMessageBox.question(
+                self, "Confirm Save", display_text,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                invoice_no = self.db.save_bill_override_id(override_id)
+                self.update_bill()
+                return invoice_no
+
         
     def print_bill(self):
         invoice_no = self.save_bill()

@@ -69,10 +69,26 @@ class DataBase:
         try:
             with open(sql_file, 'r', encoding='utf-8') as file:
                 sql_script = file.read()
-
+        
             self.cursor.executescript(sql_script)
             # print result
             print(self.cursor.fetchall())
+
+            # self.conn.commit()
+            print("SQL script executed successfully.")
+
+        except Exception as e:
+            print(f"Error: {e}")
+    
+    def execute_query(self, queryfile):
+        try:
+            with open(queryfile, 'r', encoding='utf-8') as file:
+                sql_script = file.read()
+        
+            self.cursor.execute(sql_script)
+            # print result
+            for item in self.cursor.fetchall():
+                print(item)
 
             # self.conn.commit()
             print("SQL script executed successfully.")
@@ -245,6 +261,33 @@ COMMIT;"
             self.conn.rollback()
             LogMsg("failed to save bill to database : " + str(e))
 
+    def save_bill_override_id(self, bill_id):
+        query = f"\
+BEGIN TRANSACTION;\
+DELETE FROM bills WHERE bill_id = {bill_id};\
+INSERT INTO bills (bill_id, creator) VALUES ({bill_id}, '{GetUser()}');\
+INSERT INTO bill_items (bill_id, p_id, p_name, HSN, unit_price, quantity, unit, tax_perc) \
+SELECT (SELECT last_insert_rowid()), p_id, p_name, HSN, unit_price, quantity, unit, tax_perc FROM curr_bill;\
+UPDATE product \
+SET stock = stock - (SELECT quantity FROM curr_bill WHERE curr_bill.p_id = product.p_id) \
+WHERE p_id IN (SELECT p_id FROM curr_bill); \
+COMMIT;"
+        try:
+            self.cursor.executescript(query)
+            LogMsg("bill saved to database. stock updated")
+            return bill_id
+        except Exception as e:
+            self.conn.rollback()
+            LogMsg("failed to save bill to database : " + str(e))
+
+    def doesInvoiceIdExist(self, bill_id: int):
+        query = f"SELECT timestamp FROM bills WHERE bill_id = {bill_id};"
+        if self.cursor.fetchone() is None:
+            return False
+        else:
+            return True
+
+
     def get_bill_date(self, bill_id):
         self.cursor.execute(f"SELECT timestamp FROM bills WHERE bill_id = {bill_id};")
         timestamp_str = self.cursor.fetchone()[0]
@@ -259,8 +302,22 @@ COMMIT;"
         return self.cursor.fetchall()
     
     def delete_bill(self, bill_id):
-        self.cursor.execute("DELETE FROM bills WHERE bill_id = ?", (bill_id,))
-        self.conn.commit()
+        query = f"\
+BEGIN TRANSACTION;\
+UPDATE product \
+SET stock = stock + (SELECT quantity FROM bill_items WHERE bill_id = {bill_id} AND bill_items.p_id = product.p_id) \
+WHERE p_id IN (SELECT p_id FROM bill_items WHERE bill_id = {bill_id}); \
+DELETE FROM bill_items WHERE bill_id = {bill_id};\
+DELETE FROM bills WHERE bill_id = {bill_id};\
+COMMIT;"
+        try:
+            self.cursor.executescript(query)
+            LogMsg("bill deleted from database. stock updated")
+            return True
+        except Exception as e:
+            self.conn.rollback()
+            LogMsg("failed to delete bill from database : " + str(e))
+            return False
 
     def bootstrap(self):
         try:
@@ -293,6 +350,6 @@ if __name__ == '__main__':
 
     # execute_sql_file('database/test.sql')
     db = DataBase('database/sql.db') 
-    # db.execute_sql_query('database/test.sql')
-    # db.bootstrap()
     print_all_tables_with_entries('database/sql.db')
+    # db.execute_query('database/billing.sql')
+    # db.bootstrap()

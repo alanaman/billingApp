@@ -1,8 +1,2 @@
---create product table if not exists
-CREATE TABLE IF NOT EXISTS product (
-    product_id INT AUTO_INCREMENT PRIMARY KEY,
-    product_name VARCHAR(100) NOT NULL,
-    product_price DECIMAL(10,2) NOT NULL,
-    product_stock DECIMAL(10,2) NOT NULL,
-    product_description TEXT
-);
+-- SELECT bill_id, COUNT(*) as cnt FROM bill_items group by bill_id having cnt > 2;
+select bill_id, SUM(quantity * unit_price) from bill_items group by bill_id;
