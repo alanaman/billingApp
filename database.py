@@ -1,3 +1,4 @@
+from PyQt6.QtCore import QDateTime
 import sqlite3
 from GlobalAccess import LogMsg, GetElevation, GetUser
 import bcrypt
@@ -293,9 +294,60 @@ COMMIT;"
         timestamp_str = self.cursor.fetchone()[0]
         return datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
 
-    def get_bills(self):
-        self.cursor.execute("SELECT * FROM bills ORDER BY timestamp DESC;")
+    def get_bills(self, start_datetime=None, end_datetime=None):
+        if start_datetime is None:
+            start_datetime = QDateTime.fromString("1970-01-01 00:00:00", "yyyy-MM-dd HH:mm:ss")
+        if end_datetime is None:
+            end_datetime = QDateTime.fromString("9999-12-31 23:59:59", "yyyy-MM-dd HH:mm:ss")   
+        query = """
+            SELECT * FROM bills
+            WHERE timestamp BETWEEN ? AND ?
+            ORDER BY timestamp DESC;
+        """
+        self.cursor.execute(query, (start_datetime.toString("yyyy-MM-dd HH:mm:ss"), end_datetime.toString("yyyy-MM-dd HH:mm:ss")))
         return self.cursor.fetchall()
+
+    def get_bill_summary(self, start_datetime=None, end_datetime=None):
+        if start_datetime is None:
+            start_datetime = QDateTime.fromString("1970-01-01 00:00:00", "yyyy-MM-dd HH:mm:ss")
+        if end_datetime is None:
+            end_datetime = QDateTime.fromString("9999-12-31 23:59:59", "yyyy-MM-dd HH:mm:ss")
+        query = """
+            SELECT 
+                bi.p_id,
+                bi.p_name,
+                SUM(bi.quantity) AS total_quantity,
+                SUM(bi.quantity * bi.unit_price) AS total_price_per_product
+            FROM bill_items bi
+            JOIN bills b ON bi.bill_id = b.bill_id
+            WHERE b.timestamp BETWEEN ? AND ?
+            GROUP BY bi.p_id, bi.p_name
+        """
+        self.cursor.execute(query, (
+            start_datetime.toString("yyyy-MM-dd HH:mm:ss"), 
+            end_datetime.toString("yyyy-MM-dd HH:mm:ss")
+        ))
+        products = self.cursor.fetchall()
+
+        total_price = 0
+        product_summary = {}
+
+        for p_id, p_name, total_quantity, total_price_per_product in products:
+            product_summary[(p_id, p_name)] = {
+                "total_quantity": total_quantity,
+                "total_price": total_price_per_product
+            }
+            total_price += total_price_per_product
+
+        return {
+            "total_price": total_price,
+            "product_summary": product_summary
+        }
+
+
+
+    def get_bills_summary(self):
+        self.cursor.execute()
     
     def get_bill_items(self, bill_id):
         self.cursor.execute(f"SELECT p_id, p_name, HSN, unit_price, quantity, unit, tax_perc FROM bill_items WHERE bill_id = {bill_id};")

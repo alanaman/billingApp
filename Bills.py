@@ -1,8 +1,8 @@
 import sys
 import sqlite3
-from PyQt6.QtCore import Qt, QPoint
+from PyQt6.QtCore import Qt, QPoint, QDateTime, QTime
 from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QListWidget, QTableWidget, QTableWidgetItem, QLabel
-from PyQt6.QtWidgets import QListWidgetItem, QMenu, QMessageBox
+from PyQt6.QtWidgets import QListWidgetItem, QMenu, QMessageBox, QCheckBox, QDateTimeEdit
 from PyQt6.QtGui import QAction
 from database import DataBase
 
@@ -36,6 +36,8 @@ class BillTable(QWidget):
         bill_layout = QVBoxLayout()
         bill_layout.addWidget(self.bill_table)
         bill_layout.addWidget(self.total_label)
+        self.total_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+
 
         self.setLayout(bill_layout)
 
@@ -90,21 +92,64 @@ class BillViewer(QWidget):
         self.db: DataBase = db
         
         layout = QHBoxLayout()
+
+        self.list_filter_layout = QVBoxLayout()
+
+        self.filter_toggle = QCheckBox("Filter")
+        self.list_filter_layout.addWidget(self.filter_toggle)
+        self.filter_toggle.stateChanged.connect(self.on_filter_changed)
+
+        strtTime = QHBoxLayout()
+        strtTime.addWidget(QLabel("StartTime:"))
+        curDate = QDateTime.currentDateTime()
+        curDate.setTime(QTime(0,0,0,0))
+        self.startDate = QDateTimeEdit(curDate)
+        strtTime.addWidget(self.startDate)
+        self.list_filter_layout.addLayout(strtTime)
+        self.startDate.dateTimeChanged.connect(self.on_filter_changed)
+
+        endTime = QHBoxLayout()
+        endTime.addWidget(QLabel("EndTime:"))
+        self.endDate = QDateTimeEdit(curDate.addDays(1))
+        endTime.addWidget(self.endDate)
+        self.list_filter_layout.addLayout(endTime)
+        self.endDate.dateTimeChanged.connect(self.on_filter_changed)
+
         self.bill_list = QListWidget()
         self.bill_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.bill_list.customContextMenuRequested.connect(self.show_context_menu)
         self.bill_list.itemClicked.connect(self.load_bill_items)
+        self.list_filter_layout.addWidget(self.bill_list)
+
+        self.summary_label = QLabel()
+        self.list_filter_layout.addWidget(self.summary_label)
+        self.summary_table = QTableWidget()
+        self.summary_table.setColumnCount(2)
+        self.summary_table.setHorizontalHeaderLabels(["Product Name", "Quantity Sold"])
+        self.summary_table.horizontalHeader().setStretchLastSection(True)
+        self.summary_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)  # Make it readonly
+        self.summary_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)    # No selection
+        self.summary_table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.list_filter_layout.addWidget(self.summary_table)
         
         self.bill_table = BillTable(db)
 
-        layout.addWidget(self.bill_list, 2)
-        layout.addWidget(self.bill_table, 8)
+        layout.addLayout(self.list_filter_layout, 4)
+        layout.addWidget(self.bill_table, 6)
         
         self.setLayout(layout)
         self.load_bills()
+
+    def on_filter_changed(self):
+        self.load_bills()
     
     def load_bills(self):
-        bills = self.db.get_bills()
+        if(self.filter_toggle.checkState() == Qt.CheckState.Checked):
+            bills = self.db.get_bills(self.startDate.dateTime(), self.endDate.dateTime())
+            summary = self.db.get_bill_summary(self.startDate.dateTime(), self.endDate.dateTime())
+        else:
+            bills = self.db.get_bills()
+            summary = self.db.get_bill_summary()
 
         self.bill_list.clear()
         
@@ -112,7 +157,20 @@ class BillViewer(QWidget):
             item = QListWidgetItem(f"{bill_id} - {timestamp}")
             item.setData(Qt.ItemDataRole.UserRole, bill_id)
             self.bill_list.addItem(item)
+
+        self.update_summary_label(summary)
     
+    def update_summary_label(self, summary):
+        text = f"<b>Total Sales:</b> ₹{summary['total_price']:.2f}<br><br><b>Products Sold:</b><br>"
+        self.summary_label.setText(text)
+        product_summary = summary['product_summary']
+        self.summary_table.setRowCount(len(product_summary))
+
+        # Fill product rows
+        for row, ((p_id, p_name), data) in enumerate(product_summary.items()):
+            self.summary_table.setItem(row, 0, QTableWidgetItem(p_name))
+            self.summary_table.setItem(row, 1, QTableWidgetItem(str(data['total_quantity'])))
+
     def load_bill_items(self, item: QListWidgetItem):
         bill_id = item.data(Qt.ItemDataRole.UserRole)
         items = self.db.get_bill_items(bill_id)
