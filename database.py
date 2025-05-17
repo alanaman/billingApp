@@ -88,12 +88,15 @@ class DataBase:
         
             self.cursor.execute(sql_script)
             # print result
-            for item in self.cursor.fetchall():
-                print(item)
+            result = self.cursor.fetchall()
+            # for item in result:
+            #     print(item)
 
             # self.conn.commit()
             print("SQL script executed successfully.")
 
+            return result
+        
         except Exception as e:
             print(f"Error: {e}")
 
