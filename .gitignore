@@ -3,3 +3,6 @@ bill.pdf
 err.txt
 log.txt
 output/
+dist/
+build/
+backup/

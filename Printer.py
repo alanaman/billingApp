@@ -1,6 +1,7 @@
 import os
 import tempfile
 import platform
+import json
 from reportlab.lib.pagesizes import A4, LETTER
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import simpleSplit
@@ -32,9 +33,22 @@ class BillPrinter:
         self.invoice_no = invoice_no
         self.date_time = date_time
         self.bill_items = bill_items
+        self.invoice_prefix = self._load_invoice_prefix()
+
+    def _load_invoice_prefix(self):
+        try:
+            config_path = resource_path("config.json")
+            with open(config_path, "r", encoding="utf-8") as f:
+                config = json.load(f)
+            prefix = config.get("invoice_prefix", "A")
+            return prefix if isinstance(prefix, str) and prefix else "A"
+        except Exception as exc:
+            LogMsg(f"Falling back to default invoice prefix: {exc}")
+            return ""
     
     def draw_bill(self, c : canvas.Canvas, x_offset, y_offset):
         width, height = LETTER
+        has_tax = any(item[6] != 0 for item in self.bill_items)
         
         # # Add heading
         # c.setFont("Helvetica-Bold", 16)
@@ -50,8 +64,8 @@ class BillPrinter:
 
         # Add Invoice No. and Date
         c.setFont("Helvetica", 10)
-        c.drawString(x_offset + 20, y_position, f"Invoice No.: A{self.invoice_no:03d}")
-        c.drawRightString(x_offset + 400, y_position, f"Date: {self.date_time.strftime("%d-%m-%y %H:%M")}")
+        c.drawString(x_offset + 20, y_position, f"Invoice No.: {self.invoice_prefix}{self.invoice_no:03d}")
+        c.drawRightString(x_offset + 400, y_position, f"Date: {self.date_time.strftime('%d-%m-%y %H:%M')}")
         y_position -= 12
 
         # table headings
@@ -61,9 +75,10 @@ class BillPrinter:
         c.drawRightString(x_offset + 150, y_position, "Rate")
         c.drawString(x_offset + 160, y_position, "Quantity")
         c.drawString(x_offset + 200, y_position, "Unit")
-        c.drawRightString(x_offset + 270, y_position, "Price")
-        c.drawRightString(x_offset + 310, y_position, "GST %")
-        c.drawRightString(x_offset + 360, y_position, "GST Amt.")
+        if has_tax:
+            c.drawRightString(x_offset + 270, y_position, "Price")
+            c.drawRightString(x_offset + 310, y_position, "GST %")
+            c.drawRightString(x_offset + 360, y_position, "GST Amt.")
         c.drawRightString(x_offset + 400, y_position, "Amt.")
         y_position -= 6
 
@@ -73,13 +88,13 @@ class BillPrinter:
         tax_amount = 0
         grand_total = 0
         for id, name, HSN, unit_price, quantity, unit, tax_perc in self.bill_items:
-            unit_price_no_tax = unit_price * (100 / (tax_perc + 100))
-            price_no_tax = unit_price_no_tax * quantity
-            tax = price_no_tax * tax_perc / 100
             price = unit_price * quantity
-
-            total_amount += price_no_tax
-            tax_amount += tax
+            if has_tax:
+                unit_price_no_tax = unit_price * (100 / (tax_perc + 100)) if tax_perc else unit_price
+                price_no_tax = unit_price_no_tax * quantity
+                tax = price_no_tax * tax_perc / 100 if tax_perc else 0
+                total_amount += price_no_tax
+                tax_amount += tax
             grand_total += price
             
             # Wrap text for name
@@ -101,37 +116,39 @@ class BillPrinter:
             #     c.drawString(x_offset + 20, y_position - (i * 12), line)
 
             c.drawString(x_offset + 80, y_position, str(HSN))
-            c.drawRightString(x_offset + 150, y_position, f"{unit_price_no_tax:.2f}")
+            c.drawRightString(x_offset + 150, y_position, f"{unit_price:.2f}")
             c.drawString(x_offset + 160, y_position, str(quantity))
             c.drawString(x_offset + 200, y_position, unit)
-            c.drawRightString(x_offset + 270, y_position, f"{price_no_tax:.2f}")
-            c.drawRightString(x_offset + 310, y_position, f"{tax_perc:.2f}")
-            c.drawRightString(x_offset + 360, y_position, f"{tax:.2f}")
+            if has_tax:
+                c.drawRightString(x_offset + 270, y_position, f"{price_no_tax:.2f}")
+                c.drawRightString(x_offset + 310, y_position, f"{tax_perc:.2f}")
+                c.drawRightString(x_offset + 360, y_position, f"{tax:.2f}")
             c.drawRightString(x_offset + 400, y_position, f"{price:.2f}")
             y_position -= 2
         
         y_position -= 2
         
         c.line(x_offset + 20, y_position, x_offset + 400, y_position)
-        # totals
         y_position -= 12
         c.setFont("Helvetica-Bold", 8)
         c.drawString(x_offset + 20, y_position, "Total:")
-        c.drawRightString(x_offset + 270, y_position, f"{total_amount:.2f}")
-        c.drawRightString(x_offset + 360, y_position, f"{tax_amount:.2f}")
+        if has_tax:
+            c.drawRightString(x_offset + 270, y_position, f"{total_amount:.2f}")
+            c.drawRightString(x_offset + 360, y_position, f"{tax_amount:.2f}")
         c.drawRightString(x_offset + 400, y_position, f"{grand_total:.2f}")
 
         y_position -= 20
 
         c.setFont("Helvetica-Bold", 8)
-        half_tax = tax_amount / 2
-        prefix = "CGST : Rs. "
-        c.drawString(x_offset + 330 - stringWidth(prefix, "Helvetica-Bold", 8), y_position, prefix + f"{half_tax:.2f}")
-        y_position -= 12
+        if has_tax:
+            half_tax = tax_amount / 2
+            prefix = "CGST : Rs. "
+            c.drawString(x_offset + 330 - stringWidth(prefix, "Helvetica-Bold", 8), y_position, prefix + f"{half_tax:.2f}")
+            y_position -= 12
 
-        prefix = "SGST : Rs. "
-        c.drawString(x_offset + 330 - stringWidth(prefix, "Helvetica-Bold", 8), y_position, prefix + f"{half_tax:.2f}")
-        y_position -= 12
+            prefix = "SGST : Rs. "
+            c.drawString(x_offset + 330 - stringWidth(prefix, "Helvetica-Bold", 8), y_position, prefix + f"{half_tax:.2f}")
+            y_position -= 12
 
         total_rounded = round(grand_total)
         prefix = "Round off: Rs. "

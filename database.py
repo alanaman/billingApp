@@ -1,6 +1,7 @@
 from PyQt6.QtCore import QDateTime
+import os
 import sqlite3
-from GlobalAccess import LogMsg, GetElevation, GetUser
+from GlobalAccess import LogMsg, GetElevation, GetUser, resource_path
 import bcrypt
 
 from datetime import datetime
@@ -58,12 +59,22 @@ def print_all_tables_with_entries(db_path):
 class DataBase:
     def __init__(self, db_path):
         self.db_path = db_path
+        db_missing = not os.path.exists(db_path)
+
+        # ensure parent directory exists before creating a new db file
+        db_dir = os.path.dirname(db_path)
+        if db_dir:
+            os.makedirs(db_dir, exist_ok=True)
+
         self.conn = sqlite3.connect(db_path)
         self.cursor = self.conn.cursor()
         # turn on foreign key support
         self.cursor.execute("PRAGMA foreign_keys = ON;")
 
-        self.cursor.execute(f"PRAGMA table_info(product)")
+        if db_missing:
+            self.bootstrap()
+
+        self.cursor.execute("PRAGMA table_info(product)")
         self.product_columns = [row[1] for row in self.cursor.fetchall()]
 
     def execute_sql_file(self, sql_file):
@@ -74,8 +85,7 @@ class DataBase:
             self.cursor.executescript(sql_script)
             # print result
             print(self.cursor.fetchall())
-
-            # self.conn.commit()
+            
             print("SQL script executed successfully.")
 
         except Exception as e:
@@ -376,7 +386,8 @@ COMMIT;"
 
     def bootstrap(self):
         try:
-            self.execute_sql_file('database/test.sql')
+            sql_path = resource_path('database/bootstrap.sql')
+            self.execute_sql_file(sql_path)
         except Exception as e:
             LogMsg("Error bootstrapping database : " + str(e))
             return
@@ -405,6 +416,9 @@ if __name__ == '__main__':
 
     # execute_sql_file('database/test.sql')
     db = DataBase('database/sql.db') 
-    print_all_tables_with_entries('database/sql.db')
-    # db.execute_query('database/billing.sql')
+    # print_all_tables_with_entries('database/sql.db')
+    for item in db.execute_query('database/billing.sql'):
+        # (id, date, amount) = item
+        # print(f"A{id}, {date}, {amount:.2f}")
+        print(item)
     # db.bootstrap()
