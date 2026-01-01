@@ -6,3 +6,5 @@ output/
 dist/
 build/
 backup/
+app.spec
+database/sql.db
