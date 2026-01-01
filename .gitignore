@@ -8,3 +8,5 @@ build/
 backup/
 app.spec
 database/sql.db
+*.spec
+*.db
